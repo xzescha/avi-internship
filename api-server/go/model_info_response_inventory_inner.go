@@ -10,24 +10,30 @@
 
 package openapi
 
+import (
+	"errors"
+)
 
-
-
+// InfoResponseInventoryInner содержит информацию об одном предмете в инвентаре пользователя.
 type InfoResponseInventoryInner struct {
-
-	// Тип предмета.
+	// Тип (название) предмета.
 	Type string `json:"type,omitempty"`
-
-	// Количество предметов.
+	// Количество предметов данного типа.
 	Quantity int32 `json:"quantity,omitempty"`
 }
 
-// AssertInfoResponseInventoryInnerRequired checks if the required fields are not zero-ed
+// AssertInfoResponseInventoryInnerRequired проверяет, что обязательные поля заполнены.
 func AssertInfoResponseInventoryInnerRequired(obj InfoResponseInventoryInner) error {
+	if obj.Type == "" {
+		return errors.New("type cannot be empty")
+	}
 	return nil
 }
 
-// AssertInfoResponseInventoryInnerConstraints checks if the values respects the defined constraints
+// AssertInfoResponseInventoryInnerConstraints проверяет дополнительные ограничения.
 func AssertInfoResponseInventoryInnerConstraints(obj InfoResponseInventoryInner) error {
+	if obj.Quantity < 0 {
+		return errors.New("quantity cannot be negative")
+	}
 	return nil
 }

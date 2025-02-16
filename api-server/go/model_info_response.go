@@ -10,41 +10,54 @@
 
 package openapi
 
+import (
+	"errors"
+)
 
-
-
+// InfoResponse содержит информацию о пользователе: баланс, инвентарь и историю транзакций.
 type InfoResponse struct {
-
 	// Количество доступных монет.
 	Coins int32 `json:"coins,omitempty"`
 
+	// Инвентарь пользователя (список предметов).
 	Inventory []InfoResponseInventoryInner `json:"inventory,omitempty"`
 
+	// История транзакций.
 	CoinHistory InfoResponseCoinHistory `json:"coinHistory,omitempty"`
 }
 
-// AssertInfoResponseRequired checks if the required fields are not zero-ed
+// AssertInfoResponseRequired проверяет, что обязательные поля заполнены.
 func AssertInfoResponseRequired(obj InfoResponse) error {
-	for _, el := range obj.Inventory {
-		if err := AssertInfoResponseInventoryInnerRequired(el); err != nil {
+	if obj.Coins < 0 {
+		return errors.New("coins cannot be negative")
+	}
+
+	for _, item := range obj.Inventory {
+		if err := AssertInfoResponseInventoryInnerRequired(item); err != nil {
 			return err
 		}
 	}
 	if err := AssertInfoResponseCoinHistoryRequired(obj.CoinHistory); err != nil {
 		return err
 	}
+
 	return nil
 }
 
-// AssertInfoResponseConstraints checks if the values respects the defined constraints
+// AssertInfoResponseConstraints проверяет, соблюдены ли ограничения по данным.
 func AssertInfoResponseConstraints(obj InfoResponse) error {
-	for _, el := range obj.Inventory {
-		if err := AssertInfoResponseInventoryInnerConstraints(el); err != nil {
+	if obj.Coins < 0 {
+		return errors.New("coins cannot be negative")
+	}
+
+	for _, item := range obj.Inventory {
+		if err := AssertInfoResponseInventoryInnerConstraints(item); err != nil {
 			return err
 		}
 	}
 	if err := AssertInfoResponseCoinHistoryConstraints(obj.CoinHistory); err != nil {
 		return err
 	}
+
 	return nil
 }

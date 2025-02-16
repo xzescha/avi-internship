@@ -12,14 +12,19 @@ package openapi
 
 import (
 	"context"
-	"net/http"
 	"errors"
+	"github.com/golang-jwt/jwt/v4"
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"net/http"
+	"strings"
 )
 
 // DefaultAPIService is a service that implements the logic for the DefaultAPIServicer
 // This service should implement the business logic for every endpoint for the DefaultAPI API.
 // Include any external packages or services that will be required by this service.
 type DefaultAPIService struct {
+	DB *pgxpool.Pool
 }
 
 // NewDefaultAPIService creates a default api service
@@ -27,24 +32,123 @@ func NewDefaultAPIService() *DefaultAPIService {
 	return &DefaultAPIService{}
 }
 
-// ApiInfoGet - Получить информацию о монетах, инвентаре и истории транзакций.
+func extractUsernameFromToken(ctx context.Context) (string, error) {
+	// Извлекаем заголовок Authorization
+	authHeader, ok := ctx.Value("Authorization").(string)
+	if !ok || authHeader == "" {
+		return "", errors.New("missing authorization header")
+	}
+
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return "", errors.New("invalid token format")
+	}
+
+	// Убираем "Bearer " из строки
+	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+	// Разбираем токен
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		return []byte("secret"), nil
+	})
+	if err != nil {
+		return "", err
+	}
+
+	// Извлекаем username
+	if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+		if username, ok := claims["username"].(string); ok {
+			return username, nil
+		}
+		return "", errors.New("username not found in token")
+	}
+
+	return "", errors.New("invalid token")
+}
+
 func (s *DefaultAPIService) ApiInfoGet(ctx context.Context) (ImplResponse, error) {
-	// TODO - update ApiInfoGet with the required logic for this service method.
-	// Add api_default_service.go to the .openapi-generator-ignore to avoid overwriting this service implementation when updating open api generation.
+	username, err := extractUsernameFromToken(ctx)
+	if err != nil {
+		return Response(http.StatusUnauthorized, ErrorResponse{Errors: "missing or invalid username in context"}), err
+	}
 
-	// TODO: Uncomment the next line to return response Response(200, InfoResponse{}) or use other options such as http.Ok ...
-	// return Response(200, InfoResponse{}), nil
+	// Теперь username можно использовать в запросах к БД
+	var balance int64
+	err = db.QueryRow(ctx, "SELECT balance FROM users WHERE username = $1", username).Scan(&balance)
+	if err != nil {
+		return Response(http.StatusInternalServerError, nil), err
+	}
+	// Получаем инвентарь пользователя
+	rows, err := s.DB.Query(ctx, "SELECT type, quantity FROM inventory WHERE username = $1", username)
+	if err != nil {
+		return Response(http.StatusInternalServerError, ErrorResponse{Errors: "Database error"}), err
+	}
+	defer rows.Close()
 
-	// TODO: Uncomment the next line to return response Response(400, ErrorResponse{}) or use other options such as http.Ok ...
-	// return Response(400, ErrorResponse{}), nil
+	var inventory []InfoResponseInventoryInner
+	for rows.Next() {
+		var item InfoResponseInventoryInner
+		if err := rows.Scan(&item.Type, &item.Quantity); err != nil {
+			return Response(http.StatusInternalServerError, ErrorResponse{Errors: "Database error"}), err
+		}
+		inventory = append(inventory, item)
+	}
 
-	// TODO: Uncomment the next line to return response Response(401, ErrorResponse{}) or use other options such as http.Ok ...
-	// return Response(401, ErrorResponse{}), nil
+	if len(inventory) == 0 {
+		inventory = []InfoResponseInventoryInner{}
+	}
 
-	// TODO: Uncomment the next line to return response Response(500, ErrorResponse{}) or use other options such as http.Ok ...
-	// return Response(500, ErrorResponse{}), nil
+	// Получаем историю транзакций пользователя
+	var transactions InfoResponseCoinHistory
 
-	return Response(http.StatusNotImplemented, nil), errors.New("ApiInfoGet method not implemented")
+	// Получаем транзакции, где username получал монетки
+	rowsReceived, err := s.DB.Query(ctx, `
+		SELECT sender_username, SUM(amount) 
+		FROM transactions 
+		WHERE receiver_username = $1 
+		GROUP BY sender_username`, username)
+	if err != nil {
+		return Response(http.StatusInternalServerError, ErrorResponse{Errors: "Database error"}), err
+	}
+	defer rowsReceived.Close()
+
+	for rowsReceived.Next() {
+		var trans InfoResponseCoinHistoryReceivedInner
+		if err := rowsReceived.Scan(&trans.FromUser, &trans.Amount); err != nil {
+			return Response(http.StatusInternalServerError, ErrorResponse{Errors: "Database error"}), err
+		}
+		transactions.Received = append(transactions.Received, trans)
+	}
+
+	// Получаем транзакции, где username отправлял монетки
+	rowsSent, err := s.DB.Query(ctx, `
+		SELECT receiver_username, SUM(amount) 
+		FROM transactions 
+		WHERE sender_username = $1 
+		GROUP BY receiver_username`, username)
+	if err != nil {
+		return Response(http.StatusInternalServerError, ErrorResponse{Errors: "Database error"}), err
+	}
+	defer rowsSent.Close()
+
+	for rowsSent.Next() {
+		var trans InfoResponseCoinHistorySentInner
+		if err := rowsSent.Scan(&trans.ToUser, &trans.Amount); err != nil {
+			return Response(http.StatusInternalServerError, ErrorResponse{Errors: "Database error"}), err
+		}
+		transactions.Sent = append(transactions.Sent, trans)
+	}
+
+	if len(transactions.Received) == 0 && len(transactions.Sent) == 0 {
+		transactions = InfoResponseCoinHistory{}
+	}
+
+	// Формируем ответ
+	response := InfoResponse{
+		Coins:       int32(balance),
+		Inventory:   inventory,
+		CoinHistory: transactions,
+	}
+	return Response(http.StatusOK, response), nil
 }
 
 // ApiSendCoinPost - Отправить монеты другому пользователю.
@@ -97,7 +201,7 @@ func (s *DefaultAPIService) ApiAuthPost(ctx context.Context, authRequest AuthReq
 		case "invalid credentials":
 			return Response(http.StatusUnauthorized, ErrorResponse{Errors: err.Error()}), nil
 		default:
-			return Response(http.StatusInternalServerError, ErrorResponse{Errors: "failed to process request"}), nil
+			return Response(http.StatusInternalServerError, ErrorResponse{Errors: err.Error()}), nil
 		}
 	}
 	return Response(http.StatusOK, response), nil

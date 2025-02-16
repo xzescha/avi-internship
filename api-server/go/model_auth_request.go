@@ -13,18 +13,19 @@ package openapi
 import (
 	"context"
 	"errors"
+
+	"github.com/jackc/pgx/v5"
+	"golang.org/x/crypto/bcrypt"
 )
 
 type AuthRequest struct {
-
 	// Имя пользователя для аутентификации.
 	Username string `json:"username"`
-
 	// Пароль для аутентификации.
 	Password string `json:"password"`
 }
 
-
+// AssertAuthRequestRequired проверяет, что обязательные поля заполнены.
 func AssertAuthRequestRequired(obj AuthRequest) error {
 	if obj.Username == "" || obj.Password == "" {
 		return errors.New("username and password cannot be empty")
@@ -33,6 +34,8 @@ func AssertAuthRequestRequired(obj AuthRequest) error {
 }
 
 // AuthenticateUser проверяет учетные данные пользователя в БД и возвращает JWT-токен.
+// Если пользователь не найден, происходит его регистрация (с начальным балансом 1000 монет)
+// и затем генерируется токен.
 func AuthenticateUser(authReq AuthRequest) (*AuthResponse, error) {
 	if authReq.Username == "" || authReq.Password == "" {
 		return nil, errors.New("username and password are required")
@@ -43,11 +46,20 @@ func AuthenticateUser(authReq AuthRequest) (*AuthResponse, error) {
 	err := GetDB().QueryRow(context.Background(),
 		"SELECT password FROM users WHERE username=$1", authReq.Username).Scan(&storedPassword)
 	if err != nil {
-		return nil, errors.New("invalid credentials_boo")
+		// Если пользователь не найден, регистрируем нового.
+		if err := RegisterUser(authReq); err != nil {
+			return nil, err
+		}
+		// После регистрации переходим к генерации JWT.
+		token, err := GenerateJWT(authReq.Username)
+		if err != nil {
+			return nil, err
+		}
+		return &AuthResponse{Token: token}, nil
 	}
 
-	// TODO: bcrypt для сравнения захешированных паролей.
-	if authReq.Password != storedPassword {
+	// Сравнение пароля с захешированным паролем из БД.
+	if err := bcrypt.CompareHashAndPassword([]byte(storedPassword), []byte(authReq.Password)); err != nil {
 		return nil, errors.New("invalid credentials")
 	}
 
@@ -59,7 +71,60 @@ func AuthenticateUser(authReq AuthRequest) (*AuthResponse, error) {
 	return &AuthResponse{Token: token}, nil
 }
 
-// AssertAuthRequestConstraints checks if the values respects the defined constraints
+// RegisterUser добавляет нового пользователя в базу данных,
+// создает запись в инвентаре с 1000 монетами и фиксирует транзакцию начального баланса.
+func RegisterUser(authReq AuthRequest) error {
+	// Проверка обязательных полей.
+	if err := AssertAuthRequestRequired(authReq); err != nil {
+		return err
+	}
+
+	// Проверка, существует ли уже пользователь с таким именем.
+	var exists string
+	err := GetDB().QueryRow(context.Background(),
+		"SELECT username FROM users WHERE username=$1", authReq.Username).Scan(&exists)
+	if err == nil {
+		return errors.New("user already exists")
+	}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+		return err
+	}
+
+	// Хеширование пароля.
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(authReq.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	// Вставка нового пользователя с возвратом его UUID.
+	var userID string
+	err = GetDB().QueryRow(context.Background(),
+		"INSERT INTO users (username, password) VALUES ($1, $2) RETURNING id",
+		authReq.Username, string(hashedPassword)).Scan(&userID)
+	if err != nil {
+		return err
+	}
+
+	// Добавление начального баланса в инвентарь.
+	_, err = GetDB().Exec(context.Background(),
+		"INSERT INTO user_inventory (user_id, coins) VALUES ($1, $2)",
+		userID, 1000)
+	if err != nil {
+		return err
+	}
+
+	// Фиксация транзакции начального баланса.
+	_, err = GetDB().Exec(context.Background(),
+		"INSERT INTO transactions (user_id, transaction_type, amount, description) VALUES ($1, $2, $3, $4)",
+		userID, "credit", 1000, "Initial balance")
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// AssertAuthRequestConstraints проверяет, что значения полей соответствуют заданным ограничениям.
 func AssertAuthRequestConstraints(obj AuthRequest) error {
 	return nil
 }

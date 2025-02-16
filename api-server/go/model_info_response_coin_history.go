@@ -10,17 +10,13 @@
 
 package openapi
 
-
-
-
+// InfoResponseCoinHistory содержит историю транзакций.
 type InfoResponseCoinHistory struct {
-
 	Received []InfoResponseCoinHistoryReceivedInner `json:"received,omitempty"`
-
-	Sent []InfoResponseCoinHistorySentInner `json:"sent,omitempty"`
+	Sent     []InfoResponseCoinHistorySentInner     `json:"sent,omitempty"`
 }
 
-// AssertInfoResponseCoinHistoryRequired checks if the required fields are not zero-ed
+// AssertInfoResponseCoinHistoryRequired checks if the required fields are not zero-ed.
 func AssertInfoResponseCoinHistoryRequired(obj InfoResponseCoinHistory) error {
 	for _, el := range obj.Received {
 		if err := AssertInfoResponseCoinHistoryReceivedInnerRequired(el); err != nil {
@@ -35,7 +31,7 @@ func AssertInfoResponseCoinHistoryRequired(obj InfoResponseCoinHistory) error {
 	return nil
 }
 
-// AssertInfoResponseCoinHistoryConstraints checks if the values respects the defined constraints
+// AssertInfoResponseCoinHistoryConstraints checks if the values respects the defined constraints.
 func AssertInfoResponseCoinHistoryConstraints(obj InfoResponseCoinHistory) error {
 	for _, el := range obj.Received {
 		if err := AssertInfoResponseCoinHistoryReceivedInnerConstraints(el); err != nil {

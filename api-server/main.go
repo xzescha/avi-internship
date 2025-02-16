@@ -11,21 +11,43 @@
 package main
 
 import (
+	"context"
 	"log"
 	"net/http"
 
 	openapi "github.com/GIT_USER_ID/GIT_REPO_ID/go"
 )
 
+func AuthMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			http.Error(w, "missing authorization header", http.StatusUnauthorized)
+			return
+		}
+
+		// Добавляем токен в контекст
+		ctx := context.WithValue(r.Context(), "Authorization", authHeader)
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+
 func main() {
 	openapi.InitDB()
 	defer openapi.CloseDB()
 	log.Printf("Server started")
 
+
 	DefaultAPIService := openapi.NewDefaultAPIService()
 	DefaultAPIController := openapi.NewDefaultAPIController(DefaultAPIService)
-
 	router := openapi.NewRouter(DefaultAPIController)
+
+
+	router.Use(AuthMiddleware)
+	router.HandleFunc("/api/info", func(w http.ResponseWriter, r *http.Request) {
+		DefaultAPIController.ApiInfoGet(w, r)
+	}).Methods("GET")
 
 	log.Fatal(http.ListenAndServe(":8080", router))
 }

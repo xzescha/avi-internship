@@ -10,24 +10,22 @@
 
 package openapi
 
-
-
-
+// InfoResponseCoinHistorySentInner описывает исходящую транзакцию.
 type InfoResponseCoinHistorySentInner struct {
-
 	// Имя пользователя, которому отправлены монеты.
 	ToUser string `json:"toUser,omitempty"`
-
 	// Количество отправленных монет.
 	Amount int32 `json:"amount,omitempty"`
 }
 
-// AssertInfoResponseCoinHistorySentInnerRequired checks if the required fields are not zero-ed
+// AssertInfoResponseCoinHistorySentInnerRequired проверяет, что обязательные поля заполнены.
 func AssertInfoResponseCoinHistorySentInnerRequired(obj InfoResponseCoinHistorySentInner) error {
+	// Аналогично можно проверить, что Amount > 0
 	return nil
 }
 
-// AssertInfoResponseCoinHistorySentInnerConstraints checks if the values respects the defined constraints
+// AssertInfoResponseCoinHistorySentInnerConstraints проверяет ограничения значений полей.
 func AssertInfoResponseCoinHistorySentInnerConstraints(obj InfoResponseCoinHistorySentInner) error {
+	// Можно добавить дополнительную логику, если нужно
 	return nil
 }

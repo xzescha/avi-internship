@@ -21,9 +21,9 @@
 #docs/*.md
 # Then explicitly reverse the ignore rule for a single file:
 #!docs/README.md
-api-server/go/api_default_service.go
-api-server/go/model_auth_request.go
-api-server/go/model_auth_response.go
+/go/api_default_service.go
+/go/model_auth_request.go
+/go/model_auth_response.go
 Dockerfile
 main.go
 go.mod
